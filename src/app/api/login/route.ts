@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { type NextRequest, NextResponse } from "next/server";
 
 export async function POST(request: NextRequest) {
   try {
@@ -15,9 +15,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (username === validUsername && password === validPassword) {
-      const token = Buffer.from(`${username}:${Date.now()}`).toString(
-        "base64",
-      );
+      const token = Buffer.from(`${username}:${Date.now()}`).toString("base64");
 
       const response = NextResponse.json({ success: true });
       response.cookies.set("auth_token", token, {
@@ -31,10 +29,7 @@ export async function POST(request: NextRequest) {
       return response;
     }
 
-    return NextResponse.json(
-      { error: "Invalid credentials" },
-      { status: 401 },
-    );
+    return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
   } catch (error) {
     console.error("Login error:", error);
     return NextResponse.json({ error: "Login failed" }, { status: 500 });

@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { type NextRequest, NextResponse } from "next/server";
 import cloudinary from "@/lib/cloudinary";
 
 export async function POST(request: NextRequest) {
@@ -32,11 +32,39 @@ export async function POST(request: NextRequest) {
       mimeType = (ext && mimeMap[ext]) || "image/png";
     }
 
+    const rawFolder = (formData.get("folder") as string | null) || "";
+    const rawRelativePath =
+      (formData.get("relativePath") as string | null) || "";
+
+    // Determine target subfolder from folder or relativePath
+    let subfolder = rawFolder.trim();
+    if (!subfolder && rawRelativePath) {
+      const parts = rawRelativePath.split(/[/\\]/);
+      if (parts.length > 1) {
+        parts.pop();
+        subfolder = parts.join("/");
+      }
+    }
+
+    // Clean folder path: normalize slashes, prevent directory traversal
+    const cleanSubfolder = subfolder
+      .replace(/\\/g, "/")
+      .split("/")
+      .filter((part) => part && part !== "." && part !== "..")
+      .join("/");
+
+    const targetFolder = cleanSubfolder
+      ? `image-upload-app/${cleanSubfolder}`
+      : "image-upload-app";
+
     const dataUri = `data:${mimeType};base64,${base64}`;
 
     const result = await cloudinary.uploader.upload(dataUri, {
-      folder: "image-upload-app",
+      folder: targetFolder,
       resource_type: "auto",
+      use_filename: true,
+      unique_filename: false,
+      overwrite: true,
     });
 
     return NextResponse.json({
@@ -48,6 +76,7 @@ export async function POST(request: NextRequest) {
       format: result.format,
       bytes: result.bytes,
       created_at: result.created_at,
+      folder: cleanSubfolder,
     });
   } catch (error) {
     console.error("Upload error:", error);

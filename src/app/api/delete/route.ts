@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { type NextRequest, NextResponse } from "next/server";
 import cloudinary from "@/lib/cloudinary";
 
 export async function POST(request: NextRequest) {
