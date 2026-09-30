@@ -6,13 +6,16 @@ interface CloudinaryImage {
   public_id: string;
   secure_url: string;
   url: string;
+  local_url?: string;
   width: number;
   height: number;
   format: string;
   bytes: number;
   created_at: string;
   folder?: string;
+  folder_path?: string;
   filename?: string;
+  relative_path?: string;
 }
 
 interface UploadItem {
@@ -44,6 +47,7 @@ export default function Home() {
   const [images, setImages] = useState<CloudinaryImage[]>([]);
   const [folders, setFolders] = useState<string[]>([]);
   const [selectedFolder, setSelectedFolder] = useState<string>("all");
+  const [includeSubfolders, setIncludeSubfolders] = useState<boolean>(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [customFolder, setCustomFolder] = useState("");
   const [uploading, setUploading] = useState(false);
@@ -189,10 +193,9 @@ export default function Home() {
     });
 
     const newUploaded: CloudinaryImage[] = [];
-    const newFolders = new Set<string>(folders);
     const errors: string[] = [];
 
-    // Process with concurrency limit of 3
+    // Concurrency limit of 3
     const concurrency = 3;
     let index = 0;
 
@@ -235,10 +238,6 @@ export default function Home() {
 
           const uploadedData: CloudinaryImage = await res.json();
           newUploaded.push(uploadedData);
-
-          if (uploadedData.folder) {
-            newFolders.add(uploadedData.folder);
-          }
         } catch (err) {
           console.error(`Failed uploading ${displayName}:`, err);
           errors.push(displayName);
@@ -252,10 +251,8 @@ export default function Home() {
     );
     await Promise.all(workers);
 
-    if (newUploaded.length > 0) {
-      setImages((prev) => [...newUploaded, ...prev]);
-      setFolders(Array.from(newFolders).sort());
-    }
+    // Refresh database view from SQLite backend
+    await fetchImages();
 
     setUploading(false);
     if (errors.length > 0) {
@@ -378,9 +375,9 @@ export default function Home() {
     }
   };
 
-  const copyLink = (url: string, publicId: string) => {
-    navigator.clipboard.writeText(url);
-    setCopiedId(publicId);
+  const copyLink = (textToCopy: string, id: string) => {
+    navigator.clipboard.writeText(textToCopy);
+    setCopiedId(id);
     setTimeout(() => setCopiedId(null), 2000);
   };
 
@@ -392,16 +389,77 @@ export default function Home() {
     return `${Number.parseFloat((bytes / k ** i).toFixed(1))} ${sizes[i]}`;
   };
 
+  // Compute folder hierarchy counts
+  const folderCounts = useMemo(() => {
+    const counts: Record<string, number> = {
+      all: images.length,
+      root: 0,
+    };
+
+    for (const img of images) {
+      const f = img.folder || img.folder_path || "";
+      if (!f) {
+        counts.root = (counts.root || 0) + 1;
+      } else {
+        counts[f] = (counts[f] || 0) + 1;
+        const parts = f.split("/");
+        let acc = "";
+        for (let i = 0; i < parts.length - 1; i++) {
+          acc = acc ? `${acc}/${parts[i]}` : parts[i];
+          counts[acc] = (counts[acc] || 0) + 1;
+        }
+      }
+    }
+
+    return counts;
+  }, [images]);
+
+  // Compute subfolders in the current navigation scope
+  const subfoldersInCurrentScope = useMemo(() => {
+    if (selectedFolder === "root") return [];
+
+    if (selectedFolder === "all") {
+      const topSet = new Set<string>();
+      for (const f of folders) {
+        if (!f) continue;
+        const top = f.split("/")[0];
+        topSet.add(top);
+      }
+      return Array.from(topSet).sort();
+    }
+
+    const prefix = `${selectedFolder}/`;
+    const subSet = new Set<string>();
+    for (const f of folders) {
+      if (f.startsWith(prefix)) {
+        const remainder = f.slice(prefix.length);
+        const directChild = remainder.split("/")[0];
+        subSet.add(`${selectedFolder}/${directChild}`);
+      }
+    }
+    return Array.from(subSet).sort();
+  }, [folders, selectedFolder]);
+
   // Filter images by folder and search term
   const filteredImages = useMemo(() => {
     return images.filter((img) => {
+      const folder = img.folder || img.folder_path || "";
+
       // Folder match
-      if (selectedFolder === "root" && img.folder) {
-        return false;
-      }
-      if (selectedFolder !== "all" && selectedFolder !== "root") {
-        if (!img.folder || !img.folder.startsWith(selectedFolder)) {
-          return false;
+      if (selectedFolder === "root") {
+        if (folder) return false;
+      } else if (selectedFolder !== "all") {
+        if (includeSubfolders) {
+          if (
+            folder !== selectedFolder &&
+            !folder.startsWith(`${selectedFolder}/`)
+          ) {
+            return false;
+          }
+        } else {
+          if (folder !== selectedFolder) {
+            return false;
+          }
         }
       }
 
@@ -411,32 +469,17 @@ export default function Home() {
         const matchesName = (img.filename || img.public_id)
           .toLowerCase()
           .includes(query);
-        const matchesFolder = (img.folder || "").toLowerCase().includes(query);
+        const matchesRelPath = (img.relative_path || "")
+          .toLowerCase()
+          .includes(query);
+        const matchesFolder = folder.toLowerCase().includes(query);
         const matchesFormat = img.format.toLowerCase().includes(query);
-        return matchesName || matchesFolder || matchesFormat;
+        return matchesName || matchesRelPath || matchesFolder || matchesFormat;
       }
 
       return true;
     });
-  }, [images, selectedFolder, searchQuery]);
-
-  // Compute folder counts
-  const folderCounts = useMemo(() => {
-    const counts: Record<string, number> = {
-      all: images.length,
-      root: 0,
-    };
-
-    for (const img of images) {
-      if (!img.folder) {
-        counts.root = (counts.root || 0) + 1;
-      } else {
-        counts[img.folder] = (counts[img.folder] || 0) + 1;
-      }
-    }
-
-    return counts;
-  }, [images]);
+  }, [images, selectedFolder, includeSubfolders, searchQuery]);
 
   return (
     <main className="min-h-screen bg-[#0e0c0a] text-[#f3ebdd] relative selection:bg-[#d9a55b]/30 selection:text-[#f3ebdd]">
@@ -503,10 +546,14 @@ export default function Home() {
                 <span className="text-xs font-normal px-2.5 py-0.5 rounded-full bg-[#d9a55b]/10 text-[#d9a55b] border border-[#d9a55b]/20">
                   Folder Structure Preserved
                 </span>
+                <span className="text-xs font-normal px-2.5 py-0.5 rounded-full bg-[#4caf7d]/10 text-[#4caf7d] border border-[#4caf7d]/20">
+                  SQLite Indexed
+                </span>
               </h2>
               <p className="text-xs text-[#8e8374] mt-1">
-                Upload individual files, select a directory, or drag & drop
-                entire folders to maintain structure.
+                Upload individual files, select an entire directory, or drag &
+                drop nested folders to preserve structure on disk and in
+                database.
               </p>
             </div>
 
@@ -609,12 +656,12 @@ export default function Home() {
               <div>
                 <p className="text-sm font-medium text-[#f3ebdd]">
                   {uploading
-                    ? "Uploading assets to CDN..."
+                    ? "Uploading assets to CDN & Local Archive..."
                     : "Drag and drop images or whole folders here"}
                 </p>
                 <p className="text-xs text-[#8e8374] mt-1">
-                  Supports WEBP, PNG, SVG, JPG, AVIF, HEIC, TIFF & nested
-                  subfolders
+                  Preserves subfolder hierarchy, stores files locally & indexes
+                  in SQLite
                 </p>
               </div>
 
@@ -716,7 +763,7 @@ export default function Home() {
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search by filename, extension, or folder..."
+                placeholder="Search by filename, relative path, or folder..."
                 className="w-full pl-10 pr-4 py-2 bg-[#161311] border border-[#2f2923] rounded-xl text-xs text-[#f3ebdd] placeholder-[#8e8374] focus:outline-none focus:border-[#d9a55b] transition-all"
               />
               {searchQuery && (
@@ -730,83 +777,137 @@ export default function Home() {
               )}
             </div>
 
-            <div className="text-xs text-[#8e8374] flex items-center gap-2">
+            <div className="text-xs text-[#8e8374] flex items-center gap-4">
+              {selectedFolder !== "all" && selectedFolder !== "root" && (
+                <label className="flex items-center gap-1.5 cursor-pointer select-none text-[#b9ae9d] hover:text-[#f3ebdd]">
+                  <input
+                    type="checkbox"
+                    checked={includeSubfolders}
+                    onChange={(e) => setIncludeSubfolders(e.target.checked)}
+                    className="accent-[#d9a55b] rounded cursor-pointer"
+                  />
+                  <span>Include subfolders</span>
+                </label>
+              )}
+
               <span>
                 Showing {filteredImages.length} of {images.length} assets
               </span>
             </div>
           </div>
 
-          {/* Folder Pills Navigation */}
-          <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-thin">
+          {/* Breadcrumb Navigation Bar */}
+          <div className="flex flex-wrap items-center gap-1.5 text-xs text-[#8e8374] bg-[#161311] border border-[#2f2923] px-4 py-2.5 rounded-xl">
             <button
               type="button"
               onClick={() => setSelectedFolder("all")}
-              className={`text-xs px-3.5 py-1.5 rounded-xl font-medium transition-all shrink-0 cursor-pointer flex items-center gap-1.5 ${
-                selectedFolder === "all"
-                  ? "bg-[#d9a55b] text-[#0e0c0a] font-semibold shadow-sm"
-                  : "bg-[#161311] border border-[#2f2923] text-[#b9ae9d] hover:text-[#f3ebdd] hover:border-[#413930]"
+              className={`hover:text-[#f3ebdd] transition-colors flex items-center gap-1.5 cursor-pointer ${
+                selectedFolder === "all" ? "text-[#d9a55b] font-semibold" : ""
               }`}
             >
-              <span>All Folders</span>
-              <span
-                className={`text-[10px] px-1.5 py-0.2 rounded-full ${
-                  selectedFolder === "all"
-                    ? "bg-[#0e0c0a]/20 text-[#0e0c0a]"
-                    : "bg-[#1e1a16] text-[#8e8374]"
-                }`}
+              <svg
+                className="w-3.5 h-3.5"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
               >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"
+                />
+              </svg>
+              <span>All Assets</span>
+              <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-[#1e1a16] text-[#8e8374]">
                 {folderCounts.all || 0}
               </span>
             </button>
 
             {folderCounts.root > 0 && (
-              <button
-                type="button"
-                onClick={() => setSelectedFolder("root")}
-                className={`text-xs px-3.5 py-1.5 rounded-xl font-medium transition-all shrink-0 cursor-pointer flex items-center gap-1.5 ${
-                  selectedFolder === "root"
-                    ? "bg-[#d9a55b] text-[#0e0c0a] font-semibold shadow-sm"
-                    : "bg-[#161311] border border-[#2f2923] text-[#b9ae9d] hover:text-[#f3ebdd] hover:border-[#413930]"
-                }`}
-              >
-                <span>📁 root</span>
-                <span
-                  className={`text-[10px] px-1.5 py-0.2 rounded-full ${
+              <>
+                <span className="text-[#413930]">/</span>
+                <button
+                  type="button"
+                  onClick={() => setSelectedFolder("root")}
+                  className={`hover:text-[#f3ebdd] transition-colors cursor-pointer flex items-center gap-1 ${
                     selectedFolder === "root"
-                      ? "bg-[#0e0c0a]/20 text-[#0e0c0a]"
-                      : "bg-[#1e1a16] text-[#8e8374]"
+                      ? "text-[#d9a55b] font-semibold"
+                      : ""
                   }`}
                 >
-                  {folderCounts.root}
-                </span>
-              </button>
+                  <span>📁 root</span>
+                  <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-[#1e1a16] text-[#8e8374]">
+                    {folderCounts.root}
+                  </span>
+                </button>
+              </>
             )}
 
-            {folders.map((f) => (
-              <button
-                key={f}
-                type="button"
-                onClick={() => setSelectedFolder(f)}
-                className={`text-xs px-3.5 py-1.5 rounded-xl font-medium transition-all shrink-0 cursor-pointer flex items-center gap-1.5 ${
-                  selectedFolder === f
-                    ? "bg-[#d9a55b] text-[#0e0c0a] font-semibold shadow-sm"
-                    : "bg-[#161311] border border-[#2f2923] text-[#b9ae9d] hover:text-[#f3ebdd] hover:border-[#413930]"
-                }`}
-              >
-                <span>📁 {f}</span>
-                <span
-                  className={`text-[10px] px-1.5 py-0.2 rounded-full ${
-                    selectedFolder === f
-                      ? "bg-[#0e0c0a]/20 text-[#0e0c0a]"
-                      : "bg-[#1e1a16] text-[#8e8374]"
-                  }`}
-                >
-                  {folderCounts[f] || 0}
-                </span>
-              </button>
-            ))}
+            {selectedFolder !== "all" &&
+              selectedFolder !== "root" &&
+              selectedFolder.split("/").map((part, index, arr) => {
+                const pathUpToHere = arr.slice(0, index + 1).join("/");
+                const isLast = index === arr.length - 1;
+                return (
+                  <span
+                    key={pathUpToHere}
+                    className="flex items-center gap-1.5"
+                  >
+                    <span className="text-[#413930]">/</span>
+                    {isLast ? (
+                      <span className="text-[#d9a55b] font-semibold flex items-center gap-1">
+                        <span>📁</span>
+                        <span>{part}</span>
+                        <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-[#1e1a16] text-[#8e8374]">
+                          {folderCounts[pathUpToHere] || 0}
+                        </span>
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedFolder(pathUpToHere)}
+                        className="hover:text-[#f3ebdd] transition-colors cursor-pointer flex items-center gap-1"
+                      >
+                        <span>📁</span>
+                        <span>{part}</span>
+                      </button>
+                    )}
+                  </span>
+                );
+              })}
           </div>
+
+          {/* Subfolders Quick-Explorer Chips */}
+          {subfoldersInCurrentScope.length > 0 && (
+            <div className="space-y-1.5">
+              <p className="text-[10px] font-medium text-[#8e8374] uppercase tracking-wider">
+                {selectedFolder === "all" ? "Top-level Folders" : "Subfolders"}
+              </p>
+              <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-thin">
+                {subfoldersInCurrentScope.map((sub) => {
+                  const label = sub.split("/").pop() || sub;
+                  const count = folderCounts[sub] || 0;
+                  return (
+                    <button
+                      key={sub}
+                      type="button"
+                      onClick={() => setSelectedFolder(sub)}
+                      className="text-xs px-3 py-1.5 rounded-xl bg-[#161311] hover:bg-[#1e1a16] border border-[#2f2923] hover:border-[#d9a55b]/40 text-[#f3ebdd] transition-all shrink-0 cursor-pointer flex items-center gap-2 group"
+                    >
+                      <span className="text-[#d9a55b]">📁</span>
+                      <span className="group-hover:text-[#d9a55b] transition-colors">
+                        {label}
+                      </span>
+                      <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-[#1e1a16] text-[#8e8374] font-mono">
+                        {count}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </section>
 
         {/* Assets Grid */}
@@ -834,7 +935,7 @@ export default function Home() {
               </svg>
             </div>
             <p className="text-xs text-[#8e8374]">
-              Scanning Observatory archive...
+              Scanning Observatory SQLite archive...
             </p>
           </div>
         ) : filteredImages.length === 0 ? (
@@ -859,7 +960,7 @@ export default function Home() {
             </p>
             <p className="text-xs text-[#8e8374]">
               {images.length === 0
-                ? "Upload images or a folder to populate your CDN."
+                ? "Upload images or a folder to populate your CDN & local SQLite database."
                 : "No images match the selected filter or search."}
             </p>
           </div>
@@ -868,6 +969,11 @@ export default function Home() {
             {filteredImages.map((image) => {
               const displayName =
                 image.filename || image.public_id.split("/").pop() || "image";
+              const targetUrl =
+                image.secure_url || image.local_url || image.url;
+              const displayRelPath =
+                image.relative_path ||
+                (image.folder ? `${image.folder}/${displayName}` : displayName);
 
               return (
                 <div
@@ -887,7 +993,7 @@ export default function Home() {
                     className="relative aspect-video bg-[#1e1a16] overflow-hidden cursor-pointer flex items-center justify-center p-2"
                   >
                     <img
-                      src={image.secure_url}
+                      src={targetUrl}
                       alt={displayName}
                       loading="lazy"
                       className="max-h-full max-w-full object-contain transition-transform duration-300 group-hover:scale-105"
@@ -918,18 +1024,47 @@ export default function Home() {
                         {displayName}
                       </p>
                       <div className="flex items-center gap-2 text-[11px] text-[#8e8374]">
-                        <span>
-                          {image.width}×{image.height}
-                        </span>
-                        <span>·</span>
+                        {image.width > 0 && image.height > 0 && (
+                          <>
+                            <span>
+                              {image.width}×{image.height}
+                            </span>
+                            <span>·</span>
+                          </>
+                        )}
                         <span>{formatBytes(image.bytes)}</span>
                       </div>
+                    </div>
+
+                    {/* Preserved Relative Path Badge */}
+                    <div className="flex items-center justify-between text-[11px] bg-[#1e1a16] border border-[#2f2923] rounded-lg px-2.5 py-1 text-[#8e8374]">
+                      <div
+                        className="flex items-center gap-1.5 truncate max-w-[180px]"
+                        title={displayRelPath}
+                      >
+                        <span className="text-[#d9a55b]">📁</span>
+                        <span className="truncate font-mono">
+                          {displayRelPath}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          copyLink(displayRelPath, `path-${image.public_id}`)
+                        }
+                        className="hover:text-[#f3ebdd] transition-colors text-[10px] uppercase font-mono ml-2 shrink-0 cursor-pointer"
+                        title="Copy relative path"
+                      >
+                        {copiedId === `path-${image.public_id}`
+                          ? "Copied"
+                          : "Path"}
+                      </button>
                     </div>
 
                     {/* URL Snippet */}
                     <div className="bg-[#1e1a16] border border-[#2f2923] rounded-lg px-2.5 py-1.5">
                       <p className="text-[11px] text-[#8e8374] truncate font-mono select-all">
-                        {image.secure_url}
+                        {targetUrl}
                       </p>
                     </div>
 
@@ -937,9 +1072,7 @@ export default function Home() {
                     <div className="flex items-center gap-2 pt-1">
                       <button
                         type="button"
-                        onClick={() =>
-                          copyLink(image.secure_url, image.public_id)
-                        }
+                        onClick={() => copyLink(targetUrl, image.public_id)}
                         className={`flex-1 text-xs py-2 px-2.5 rounded-xl font-medium transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
                           copiedId === image.public_id
                             ? "bg-[#4caf7d]/20 text-[#4caf7d] border border-[#4caf7d]/40"
@@ -973,7 +1106,7 @@ export default function Home() {
 
                       <button
                         type="button"
-                        onClick={() => window.open(image.secure_url, "_blank")}
+                        onClick={() => window.open(targetUrl, "_blank")}
                         className="text-xs p-2 rounded-xl bg-[#1e1a16] hover:bg-[#27221c] text-[#b9ae9d] hover:text-[#f3ebdd] border border-[#2f2923] transition-colors cursor-pointer"
                         title="Open full size in new tab"
                       >
@@ -1044,9 +1177,9 @@ export default function Home() {
                 <p className="text-sm font-semibold text-[#f3ebdd] truncate">
                   {previewImage.filename || previewImage.public_id}
                 </p>
-                {previewImage.folder && (
+                {(previewImage.relative_path || previewImage.folder) && (
                   <p className="text-xs text-[#d9a55b]">
-                    📁 {previewImage.folder}
+                    📁 {previewImage.relative_path || previewImage.folder}
                   </p>
                 )}
               </div>
@@ -1061,23 +1194,49 @@ export default function Home() {
 
             <div className="p-6 bg-[#0e0c0a] flex items-center justify-center overflow-auto flex-1">
               <img
-                src={previewImage.secure_url}
+                src={
+                  previewImage.secure_url ||
+                  previewImage.local_url ||
+                  previewImage.url
+                }
                 alt={previewImage.public_id}
                 className="max-h-[60vh] max-w-full object-contain rounded-lg shadow-lg"
               />
             </div>
 
-            <div className="p-4 border-t border-[#2f2923] bg-[#161311] flex items-center justify-between text-xs">
+            <div className="p-4 border-t border-[#2f2923] bg-[#161311] flex flex-wrap items-center justify-between gap-3 text-xs">
               <span className="text-[#8e8374]">
-                {previewImage.width}×{previewImage.height} ·{" "}
+                {previewImage.width > 0 &&
+                  `${previewImage.width}×${previewImage.height} · `}
                 {formatBytes(previewImage.bytes)} ·{" "}
                 {previewImage.format.toUpperCase()}
               </span>
               <div className="flex gap-2">
+                {previewImage.relative_path && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      copyLink(
+                        previewImage.relative_path || "",
+                        `modal-path-${previewImage.public_id}`,
+                      )
+                    }
+                    className="px-3 py-1.5 rounded-lg bg-[#1e1a16] hover:bg-[#27221c] text-[#b9ae9d] hover:text-[#f3ebdd] border border-[#2f2923]"
+                  >
+                    {copiedId === `modal-path-${previewImage.public_id}`
+                      ? "Copied Path!"
+                      : "Copy Path"}
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() =>
-                    copyLink(previewImage.secure_url, previewImage.public_id)
+                    copyLink(
+                      previewImage.secure_url ||
+                        previewImage.local_url ||
+                        previewImage.url,
+                      previewImage.public_id,
+                    )
                   }
                   className="px-3.5 py-1.5 rounded-lg bg-[#d9a55b] text-[#0e0c0a] font-semibold"
                 >
@@ -1085,7 +1244,14 @@ export default function Home() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => window.open(previewImage.secure_url, "_blank")}
+                  onClick={() =>
+                    window.open(
+                      previewImage.secure_url ||
+                        previewImage.local_url ||
+                        previewImage.url,
+                      "_blank",
+                    )
+                  }
                   className="px-3.5 py-1.5 rounded-lg bg-[#1e1a16] text-[#f3ebdd] border border-[#2f2923]"
                 >
                   Open in New Tab
