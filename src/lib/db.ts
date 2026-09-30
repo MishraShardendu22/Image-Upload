@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
@@ -35,22 +36,39 @@ export interface FolderNode {
 
 let dbInstance: DatabaseSync | null = null;
 
-function getDb(): DatabaseSync {
-  if (dbInstance) return dbInstance;
+function getDataDir(): string {
+  // In serverless environments like Vercel or AWS Lambda, process.cwd() is read-only.
+  // Use os.tmpdir() for writable storage.
+  const isServerless = Boolean(
+    process.env.VERCEL ||
+      process.env.AWS_LAMBDA_FUNCTION_NAME ||
+      process.env.TMPDIR,
+  );
 
-  const dataDir = path.join(process.cwd(), "data");
-  if (!fs.existsSync(dataDir)) {
-    fs.mkdirSync(dataDir, { recursive: true });
+  if (isServerless) {
+    return path.join(os.tmpdir(), "image-upload-data");
   }
 
-  const dbPath = path.join(dataDir, "images.db");
-  const db = new DatabaseSync(dbPath);
+  // In local development, check if process.cwd()/data is writable
+  try {
+    const localDir = path.join(process.cwd(), "data");
+    if (!fs.existsSync(localDir)) {
+      fs.mkdirSync(localDir, { recursive: true });
+    }
+    return localDir;
+  } catch {
+    return path.join(os.tmpdir(), "image-upload-data");
+  }
+}
 
-  // Enable WAL mode for performance & concurrent reads
-  db.exec("PRAGMA journal_mode = WAL;");
-  db.exec("PRAGMA foreign_keys = ON;");
+function initSchema(db: DatabaseSync): void {
+  try {
+    db.exec("PRAGMA journal_mode = WAL;");
+    db.exec("PRAGMA foreign_keys = ON;");
+  } catch {
+    // Some in-memory SQLite environments do not support WAL mode
+  }
 
-  // Schema creation
   db.exec(`
     CREATE TABLE IF NOT EXISTS folders (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -79,9 +97,40 @@ function getDb(): DatabaseSync {
     CREATE INDEX IF NOT EXISTS idx_images_relative ON images(relative_path);
     CREATE INDEX IF NOT EXISTS idx_folders_parent ON folders(parent_path);
   `);
+}
 
-  dbInstance = db;
-  return db;
+export function getDb(): DatabaseSync | null {
+  if (dbInstance) return dbInstance;
+
+  try {
+    const dataDir = getDataDir();
+    if (!fs.existsSync(dataDir)) {
+      fs.mkdirSync(dataDir, { recursive: true });
+    }
+
+    const dbPath = path.join(dataDir, "images.db");
+    const db = new DatabaseSync(dbPath);
+    initSchema(db);
+    dbInstance = db;
+    return db;
+  } catch (diskErr) {
+    console.warn(
+      "Failed to initialize SQLite on disk, falling back to in-memory:",
+      diskErr,
+    );
+    try {
+      const memoryDb = new DatabaseSync(":memory:");
+      initSchema(memoryDb);
+      dbInstance = memoryDb;
+      return memoryDb;
+    } catch (memErr) {
+      console.error(
+        "Critical: Could not initialize SQLite DatabaseSync:",
+        memErr,
+      );
+      return null;
+    }
+  }
 }
 
 /** Ensure a folder and all its parent directories exist in the folders table */
@@ -94,64 +143,75 @@ export function ensureFolderHierarchy(folderPath: string): void {
   if (!clean) return;
 
   const db = getDb();
+  if (!db) return;
+
   const parts = clean.split("/").filter(Boolean);
 
   let currentPath = "";
   let parentPath: string | null = null;
 
-  const insertStmt = db.prepare(`
-    INSERT OR IGNORE INTO folders (path, name, parent_path, created_at)
-    VALUES (?, ?, ?, ?);
-  `);
+  try {
+    const insertStmt = db.prepare(`
+      INSERT OR IGNORE INTO folders (path, name, parent_path, created_at)
+      VALUES (?, ?, ?, ?);
+    `);
 
-  for (const part of parts) {
-    currentPath = currentPath ? `${currentPath}/${part}` : part;
-    const now = new Date().toISOString();
-    insertStmt.run(currentPath, part, parentPath, now);
-    parentPath = currentPath;
+    for (const part of parts) {
+      currentPath = currentPath ? `${currentPath}/${part}` : part;
+      const now = new Date().toISOString();
+      insertStmt.run(currentPath, part, parentPath, now);
+      parentPath = currentPath;
+    }
+  } catch (err) {
+    console.warn("Failed to ensure folder hierarchy:", err);
   }
 }
 
 /** Insert or update an image record and its parent folder */
 export function saveImageRecord(img: ImageRecord): void {
   const db = getDb();
+  if (!db) return;
 
   if (img.folder_path) {
     ensureFolderHierarchy(img.folder_path);
   }
 
-  const stmt = db.prepare(`
-    INSERT INTO images (
-      public_id, filename, relative_path, folder_path,
-      local_url, secure_url, width, height, format, bytes, created_at
-    )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(public_id) DO UPDATE SET
-      filename = excluded.filename,
-      relative_path = excluded.relative_path,
-      folder_path = excluded.folder_path,
-      local_url = excluded.local_url,
-      secure_url = excluded.secure_url,
-      width = excluded.width,
-      height = excluded.height,
-      format = excluded.format,
-      bytes = excluded.bytes,
-      created_at = excluded.created_at;
-  `);
+  try {
+    const stmt = db.prepare(`
+      INSERT INTO images (
+        public_id, filename, relative_path, folder_path,
+        local_url, secure_url, width, height, format, bytes, created_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(public_id) DO UPDATE SET
+        filename = excluded.filename,
+        relative_path = excluded.relative_path,
+        folder_path = excluded.folder_path,
+        local_url = excluded.local_url,
+        secure_url = excluded.secure_url,
+        width = excluded.width,
+        height = excluded.height,
+        format = excluded.format,
+        bytes = excluded.bytes,
+        created_at = excluded.created_at;
+    `);
 
-  stmt.run(
-    img.public_id,
-    img.filename,
-    img.relative_path,
-    img.folder_path,
-    img.local_url,
-    img.secure_url,
-    img.width ?? null,
-    img.height ?? null,
-    img.format,
-    img.bytes,
-    img.created_at,
-  );
+    stmt.run(
+      img.public_id,
+      img.filename,
+      img.relative_path,
+      img.folder_path,
+      img.local_url,
+      img.secure_url,
+      img.width ?? null,
+      img.height ?? null,
+      img.format,
+      img.bytes,
+      img.created_at,
+    );
+  } catch (err) {
+    console.warn("Failed to save image record to SQLite:", err);
+  }
 }
 
 /** Fetch all images with optional folder filtering and search */
@@ -161,6 +221,8 @@ export function listImages(options?: {
   search?: string;
 }): ImageRecord[] {
   const db = getDb();
+  if (!db) return [];
+
   const { folder, recursive = true, search } = options || {};
 
   let query = "SELECT * FROM images WHERE 1=1";
@@ -186,26 +248,37 @@ export function listImages(options?: {
 
   query += " ORDER BY created_at DESC;";
 
-  return db.prepare(query).all(...params) as unknown as ImageRecord[];
+  try {
+    return db.prepare(query).all(...params) as unknown as ImageRecord[];
+  } catch (err) {
+    console.warn("Failed to list images from SQLite:", err);
+    return [];
+  }
 }
 
 /** Fetch all distinct folders with image counts */
 export function listFolders(): { path: string; name: string; count: number }[] {
   const db = getDb();
+  if (!db) return [];
 
-  const stmt = db.prepare(`
-    SELECT f.path, f.name, COUNT(i.id) as count
-    FROM folders f
-    LEFT JOIN images i ON (i.folder_path = f.path OR i.folder_path LIKE f.path || '/%')
-    GROUP BY f.path, f.name
-    ORDER BY f.path ASC;
-  `);
+  try {
+    const stmt = db.prepare(`
+      SELECT f.path, f.name, COUNT(i.id) as count
+      FROM folders f
+      LEFT JOIN images i ON (i.folder_path = f.path OR i.folder_path LIKE f.path || '/%')
+      GROUP BY f.path, f.name
+      ORDER BY f.path ASC;
+    `);
 
-  return stmt.all() as unknown as {
-    path: string;
-    name: string;
-    count: number;
-  }[];
+    return stmt.all() as unknown as {
+      path: string;
+      name: string;
+      count: number;
+    }[];
+  } catch (err) {
+    console.warn("Failed to list folders from SQLite:", err);
+    return [];
+  }
 }
 
 /** Build a nested hierarchical folder tree */
@@ -247,26 +320,47 @@ export function getFolderTree(): FolderNode[] {
 /** Fetch an image record by publicId */
 export function getImageByPublicId(publicId: string): ImageRecord | null {
   const db = getDb();
-  const row = db
-    .prepare("SELECT * FROM images WHERE public_id = ?;")
-    .get(publicId);
-  return (row as unknown as ImageRecord) || null;
+  if (!db) return null;
+
+  try {
+    const row = db
+      .prepare("SELECT * FROM images WHERE public_id = ?;")
+      .get(publicId);
+    return (row as unknown as ImageRecord) || null;
+  } catch (err) {
+    console.warn("Failed to get image by public ID:", err);
+    return null;
+  }
 }
 
 /** Delete an image record from SQLite */
 export function deleteImageRecord(publicId: string): boolean {
   const db = getDb();
-  const res = db
-    .prepare("DELETE FROM images WHERE public_id = ?;")
-    .run(publicId);
-  return (res.changes ?? 0) > 0;
+  if (!db) return false;
+
+  try {
+    const res = db
+      .prepare("DELETE FROM images WHERE public_id = ?;")
+      .run(publicId);
+    return (res.changes ?? 0) > 0;
+  } catch (err) {
+    console.warn("Failed to delete image record from SQLite:", err);
+    return false;
+  }
 }
 
 /** Total count of assets */
 export function getImageCount(): number {
   const db = getDb();
-  const row = db.prepare("SELECT COUNT(*) as total FROM images;").get() as {
-    total: number;
-  };
-  return row?.total ?? 0;
+  if (!db) return 0;
+
+  try {
+    const row = db.prepare("SELECT COUNT(*) as total FROM images;").get() as {
+      total: number;
+    };
+    return row?.total ?? 0;
+  } catch (err) {
+    console.warn("Failed to get image count from SQLite:", err);
+    return 0;
+  }
 }

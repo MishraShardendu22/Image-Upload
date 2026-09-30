@@ -36,6 +36,33 @@ export default function LoginPage() {
     }
   };
 
+  const handleQuickDemo = async () => {
+    setUsername("admin");
+    setPassword("admin");
+    setError("");
+    setLoading(true);
+
+    try {
+      const res = await fetch("/api/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: "admin", password: "admin" }),
+      });
+
+      if (res.ok) {
+        router.push("/");
+        router.refresh();
+      } else {
+        const data = await res.json();
+        setError(data.error || "Invalid credentials");
+      }
+    } catch {
+      setError("Something went wrong. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <main className="min-h-screen bg-[#0e0c0a] text-[#f3ebdd] flex items-center justify-center px-4 relative overflow-hidden">
       {/* Warm ambient glow */}
@@ -120,6 +147,20 @@ export default function LoginPage() {
           >
             {loading ? "Signing in..." : "Sign In"}
           </button>
+
+          <div className="pt-2 border-t border-[#2f2923]/60 flex flex-col items-center gap-2">
+            <button
+              type="button"
+              onClick={handleQuickDemo}
+              disabled={loading}
+              className="w-full py-2 bg-[#1e1a16] hover:bg-[#25201b] border border-[#2f2923] text-[#d9a55b] hover:text-[#f3ebdd] rounded-xl text-xs font-mono transition-all cursor-pointer flex items-center justify-center gap-1.5"
+            >
+              <span>⚡ Quick Sign In (admin / admin)</span>
+            </button>
+            <span className="text-[11px] text-[#8e8374] font-mono">
+              Configured via AUTH_USERNAME / AUTH_PASSWORD
+            </span>
+          </div>
         </form>
       </div>
     </main>

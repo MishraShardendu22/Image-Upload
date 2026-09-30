@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { type NextRequest, NextResponse } from "next/server";
 import cloudinary from "@/lib/cloudinary";
@@ -65,15 +66,29 @@ export async function POST(request: NextRequest) {
       ? `${cleanSubfolder}/${safeFilename}`
       : safeFilename;
 
-    // 1. Save file locally matching folder structure
-    const uploadsBaseDir = path.join(process.cwd(), "public", "uploads");
+    // 1. Save file locally matching folder structure (safe for serverless read-only filesystem)
+    const isServerless = Boolean(
+      process.env.VERCEL ||
+        process.env.AWS_LAMBDA_FUNCTION_NAME ||
+        process.env.TMPDIR,
+    );
+    const uploadsBaseDir = isServerless
+      ? path.join(os.tmpdir(), "public", "uploads")
+      : path.join(process.cwd(), "public", "uploads");
     const targetDiskDir = cleanSubfolder
       ? path.join(uploadsBaseDir, cleanSubfolder)
       : uploadsBaseDir;
 
-    await fs.mkdir(targetDiskDir, { recursive: true });
-    const localDiskPath = path.join(targetDiskDir, safeFilename);
-    await fs.writeFile(localDiskPath, buffer);
+    try {
+      await fs.mkdir(targetDiskDir, { recursive: true });
+      const localDiskPath = path.join(targetDiskDir, safeFilename);
+      await fs.writeFile(localDiskPath, buffer);
+    } catch (diskErr) {
+      console.warn(
+        "Local disk write skipped in serverless environment:",
+        diskErr,
+      );
+    }
 
     // Build local URL
     const encodedSubfolder = cleanSubfolder
