@@ -93,11 +93,11 @@ async function uploadFile(item, index, total) {
       overwrite: true,
     });
 
-    console.log(`✓ DONE`);
+    console.log(`[OK] DONE`);
     console.log(`   CDN: ${result.secure_url}`);
     return { success: true, item, result };
   } catch (error) {
-    console.log(`✗ FAILED: ${error.message}`);
+    console.log(`[ERROR] FAILED: ${error.message}`);
     return { success: false, item, error };
   }
 }

@@ -43,6 +43,24 @@ interface WebkitDirectoryEntry extends WebkitEntry {
   };
 }
 
+function FolderIcon({ className = "w-3.5 h-3.5" }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      fill="none"
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={1.5}
+        d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
+      />
+    </svg>
+  );
+}
+
 export default function Home() {
   const [images, setImages] = useState<CloudinaryImage[]>([]);
   const [folders, setFolders] = useState<string[]>([]);
@@ -770,9 +788,22 @@ export default function Home() {
                 <button
                   type="button"
                   onClick={() => setSearchQuery("")}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-[#8e8374] hover:text-[#f3ebdd]"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-[#8e8374] hover:text-[#f3ebdd] cursor-pointer"
+                  aria-label="Clear search query"
                 >
-                  ✕
+                  <svg
+                    className="w-3.5 h-3.5"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M6 18L18 6M6 6l12 12"
+                    />
+                  </svg>
                 </button>
               )}
             </div>
@@ -830,13 +861,14 @@ export default function Home() {
                 <button
                   type="button"
                   onClick={() => setSelectedFolder("root")}
-                  className={`hover:text-[#f3ebdd] transition-colors cursor-pointer flex items-center gap-1 ${
+                  className={`hover:text-[#f3ebdd] transition-colors cursor-pointer flex items-center gap-1.5 ${
                     selectedFolder === "root"
                       ? "text-[#d9a55b] font-semibold"
                       : ""
                   }`}
                 >
-                  <span>📁 root</span>
+                  <FolderIcon className="w-3.5 h-3.5 text-[#d9a55b]" />
+                  <span>root</span>
                   <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-[#1e1a16] text-[#8e8374]">
                     {folderCounts.root}
                   </span>
@@ -856,8 +888,8 @@ export default function Home() {
                   >
                     <span className="text-[#413930]">/</span>
                     {isLast ? (
-                      <span className="text-[#d9a55b] font-semibold flex items-center gap-1">
-                        <span>📁</span>
+                      <span className="text-[#d9a55b] font-semibold flex items-center gap-1.5">
+                        <FolderIcon className="w-3.5 h-3.5 text-[#d9a55b]" />
                         <span>{part}</span>
                         <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-[#1e1a16] text-[#8e8374]">
                           {folderCounts[pathUpToHere] || 0}
@@ -867,9 +899,9 @@ export default function Home() {
                       <button
                         type="button"
                         onClick={() => setSelectedFolder(pathUpToHere)}
-                        className="hover:text-[#f3ebdd] transition-colors cursor-pointer flex items-center gap-1"
+                        className="hover:text-[#f3ebdd] transition-colors cursor-pointer flex items-center gap-1.5"
                       >
-                        <span>📁</span>
+                        <FolderIcon className="w-3.5 h-3.5 text-[#8e8374]" />
                         <span>{part}</span>
                       </button>
                     )}
@@ -895,7 +927,7 @@ export default function Home() {
                       onClick={() => setSelectedFolder(sub)}
                       className="text-xs px-3 py-1.5 rounded-xl bg-[#161311] hover:bg-[#1e1a16] border border-[#2f2923] hover:border-[#d9a55b]/40 text-[#f3ebdd] transition-all shrink-0 cursor-pointer flex items-center gap-2 group"
                     >
-                      <span className="text-[#d9a55b]">📁</span>
+                      <FolderIcon className="w-3.5 h-3.5 text-[#d9a55b]" />
                       <span className="group-hover:text-[#d9a55b] transition-colors">
                         {label}
                       </span>
@@ -1001,8 +1033,8 @@ export default function Home() {
 
                     {/* Folder Badge Overlay */}
                     {image.folder && (
-                      <div className="absolute top-2 left-2 px-2 py-0.5 rounded-md bg-[#0e0c0a]/80 backdrop-blur-sm border border-[#2f2923] text-[10px] text-[#d9a55b] flex items-center gap-1">
-                        <span>📁</span>
+                      <div className="absolute top-2 left-2 px-2 py-0.5 rounded-md bg-[#0e0c0a]/80 backdrop-blur-sm border border-[#2f2923] text-[10px] text-[#d9a55b] flex items-center gap-1.5">
+                        <FolderIcon className="w-3 h-3 text-[#d9a55b]" />
                         <span className="truncate max-w-[120px]">
                           {image.folder}
                         </span>
@@ -1042,7 +1074,7 @@ export default function Home() {
                         className="flex items-center gap-1.5 truncate max-w-[180px]"
                         title={displayRelPath}
                       >
-                        <span className="text-[#d9a55b]">📁</span>
+                        <FolderIcon className="w-3.5 h-3.5 text-[#d9a55b] shrink-0" />
                         <span className="truncate font-mono">
                           {displayRelPath}
                         </span>
@@ -1081,8 +1113,20 @@ export default function Home() {
                       >
                         {copiedId === image.public_id ? (
                           <>
-                            <span>✓</span>
-                            <span>Copied!</span>
+                            <svg
+                              className="w-3.5 h-3.5 text-[#4caf7d]"
+                              fill="none"
+                              stroke="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M5 13l4 4L19 7"
+                              />
+                            </svg>
+                            <span>Copied</span>
                           </>
                         ) : (
                           <>
@@ -1133,7 +1177,25 @@ export default function Home() {
                         title="Delete asset"
                       >
                         {deletingId === image.public_id ? (
-                          <span className="animate-spin inline-block">⏳</span>
+                          <svg
+                            className="w-3.5 h-3.5 animate-spin text-[#e06060]"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                          >
+                            <circle
+                              className="opacity-25"
+                              cx="12"
+                              cy="12"
+                              r="10"
+                              stroke="currentColor"
+                              strokeWidth="4"
+                            />
+                            <path
+                              className="opacity-75"
+                              fill="currentColor"
+                              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                            />
+                          </svg>
                         ) : (
                           <svg
                             className="w-3.5 h-3.5"
@@ -1178,17 +1240,33 @@ export default function Home() {
                   {previewImage.filename || previewImage.public_id}
                 </p>
                 {(previewImage.relative_path || previewImage.folder) && (
-                  <p className="text-xs text-[#d9a55b]">
-                    📁 {previewImage.relative_path || previewImage.folder}
+                  <p className="text-xs text-[#d9a55b] flex items-center gap-1.5 mt-0.5">
+                    <FolderIcon className="w-3.5 h-3.5 text-[#d9a55b]" />
+                    <span>
+                      {previewImage.relative_path || previewImage.folder}
+                    </span>
                   </p>
                 )}
               </div>
               <button
                 type="button"
                 onClick={() => setPreviewImage(null)}
-                className="w-8 h-8 rounded-lg bg-[#1e1a16] text-[#b9ae9d] hover:text-[#f3ebdd] flex items-center justify-center border border-[#2f2923]"
+                aria-label="Close preview"
+                className="w-8 h-8 rounded-lg bg-[#1e1a16] text-[#b9ae9d] hover:text-[#f3ebdd] flex items-center justify-center border border-[#2f2923] cursor-pointer transition-colors"
               >
-                ✕
+                <svg
+                  className="w-4 h-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M6 18L18 6M6 6l12 12"
+                  />
+                </svg>
               </button>
             </div>
 

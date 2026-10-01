@@ -28,7 +28,7 @@ assert(
   paths.includes("Projects/2026/Q1/Branding"),
   "Projects/2026/Q1/Branding folder must exist",
 );
-console.log("✓ ensureFolderHierarchy passed");
+console.log("[PASS] ensureFolderHierarchy");
 
 // 2. Test tree building
 const tree = getFolderTree();
@@ -39,7 +39,7 @@ assert(
   projectsRoot.children.some((c) => c.name === "2026"),
   "Child '2026' should exist",
 );
-console.log("✓ getFolderTree passed");
+console.log("[PASS] getFolderTree");
 
 // 3. Test image saving & listing
 const testPublicId = "test/Projects/2026/Q1/Branding/logo";
@@ -62,7 +62,7 @@ assert(found, "Image record should be found by public_id");
 assert.strictEqual(found.filename, "logo.png");
 assert.strictEqual(found.folder_path, "Projects/2026/Q1/Branding");
 assert.strictEqual(found.relative_path, "Projects/2026/Q1/Branding/logo.png");
-console.log("✓ saveImageRecord & getImageByPublicId passed");
+console.log("[PASS] saveImageRecord & getImageByPublicId");
 
 // 4. Test listImages with folder filtering
 const inFolder = listImages({ folder: "Projects/2026" });
@@ -70,7 +70,7 @@ assert(
   inFolder.some((img) => img.public_id === testPublicId),
   "Image should be returned when querying ancestor folder",
 );
-console.log("✓ listImages ancestor query passed");
+console.log("[PASS] listImages ancestor query");
 
 // 5. Test search query
 const searchResults = listImages({ search: "Branding" });
@@ -78,13 +78,11 @@ assert(
   searchResults.some((img) => img.public_id === testPublicId),
   "Image should be returned when searching for term",
 );
-console.log("✓ listImages search passed");
+console.log("[PASS] listImages search");
 
 // 6. Test delete
 const deleted = deleteImageRecord(testPublicId);
 assert(deleted, "deleteImageRecord should return true");
 const afterDelete = getImageByPublicId(testPublicId);
 assert.strictEqual(afterDelete, null, "Image should be null after delete");
-console.log("✓ deleteImageRecord passed");
-
-console.log("\nALL SQLITE & FOLDER TESTS PASSED SUCCESSFULLY! 🎉\n");
+console.log("\nALL SQLITE & FOLDER TESTS PASSED SUCCESSFULLY!\n");
