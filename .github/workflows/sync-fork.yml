@@ -1,0 +1,34 @@
+name: Sync Fork
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sync-to-fork:
+    name: Sync to ShardenduMishra22/Image-Upload
+    if: github.repository == 'MishraShardendu22/Image-Upload'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout upstream repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Push commits to fork
+        env:
+          FORK_TOKEN: ${{ secrets.SYNC_FORK_TOKEN }}
+        run: |
+          if [ -z "$FORK_TOKEN" ]; then
+            echo "::error::SYNC_FORK_TOKEN is not configured. Please add it under Repository Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+
+          git remote add fork "https://x-access-token:${FORK_TOKEN}@github.com/ShardenduMishra22/Image-Upload.git"
+          git push fork main:main --force
+          echo "Successfully synced ShardenduMishra22/Image-Upload to $(git rev-parse --short HEAD)"
