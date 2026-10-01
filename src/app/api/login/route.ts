@@ -4,17 +4,23 @@ export async function POST(request: NextRequest) {
   try {
     const { username, password } = await request.json();
 
-    // Support configured credentials, or fallback to default admin/admin if unset in deployment
-    const validUsername = process.env.AUTH_USERNAME || "admin";
-    const validPassword = process.env.AUTH_PASSWORD || "admin";
+    const validUsername = process.env.AUTH_USERNAME;
+    const validPassword = process.env.AUTH_PASSWORD;
+
+    if (!validUsername || !validPassword) {
+      return NextResponse.json(
+        {
+          error:
+            "Server authentication is not configured in environment variables",
+        },
+        { status: 500 },
+      );
+    }
 
     if (username === validUsername && password === validPassword) {
       const token = Buffer.from(`${username}:${Date.now()}`).toString("base64");
 
-      const response = NextResponse.json({
-        success: true,
-        usingDefaultAuth: !process.env.AUTH_USERNAME,
-      });
+      const response = NextResponse.json({ success: true });
 
       response.cookies.set("auth_token", token, {
         httpOnly: true,
