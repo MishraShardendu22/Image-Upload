@@ -11,8 +11,8 @@ permissions:
 
 jobs:
   sync-to-fork:
-    name: Sync to ShardenduMishra22/Image-Upload
-    if: github.repository == 'MishraShardendu22/Image-Upload'
+    name: Sync to ShardenduMishra22/main-cdn
+    if: github.repository == 'MishraShardendu22/observatory-cdn'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout upstream repository
@@ -29,6 +29,6 @@ jobs:
             exit 1
           fi
 
-          git remote add fork "https://x-access-token:${FORK_TOKEN}@github.com/ShardenduMishra22/Image-Upload.git"
+          git remote add fork "https://x-access-token:${FORK_TOKEN}@github.com/ShardenduMishra22/main-cdn.git"
           git push fork main:main --force
-          echo "Successfully synced ShardenduMishra22/Image-Upload to $(git rev-parse --short HEAD)"
+          echo "Successfully synced ShardenduMishra22/main-cdn to $(git rev-parse --short HEAD)"
